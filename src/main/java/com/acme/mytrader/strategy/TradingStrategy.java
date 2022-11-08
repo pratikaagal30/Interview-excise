@@ -1,16 +1,12 @@
 package com.acme.mytrader.strategy;
 
-import java.util.Arrays;
 import java.util.List;
 
 import com.acme.mytrader.execution.ExecutionService;
 import com.acme.mytrader.execution.TradeExecutionService;
-import com.acme.mytrader.price.BuyPriceListener;
-import com.acme.mytrader.price.PriceSourceImpl;
-import com.acme.mytrader.price.PriceSourceRunnable;
+import com.acme.mytrader.price.PriceListener;
+import com.acme.mytrader.price.PriceSource;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 
 /**
@@ -19,50 +15,67 @@ import lombok.Data;
  * that when they breach a trigger level orders can be executed automatically
  * </pre>
  */
-public class TradingStrategy {
+@Data
+public class TradingStrategy implements PriceListener {
 	
-	private final ExecutionService tradeExecutionService;
-	private final PriceSourceRunnable priceSource;
+	private ExecutionService tradeExecutionService;
+	private PriceSource priceSource;
+	private String security;
+	private double triggerLevel;
+	private int quantityToPurchase;
+	private boolean tradeExecuted;
+	private double priceThreshold;
+	private int volume;
 	
-	public TradingStrategy(ExecutionService tradeExecutionService, PriceSourceRunnable priceSource) {
+	
+
+	/**
+	 * @param tradeExecutionService
+	 * @param priceSource
+	 * @param security
+	 * @param triggerLevel
+	 * @param quantityToPurchase
+	 * @param tradeExecuted
+	 * @param priceThreshold
+	 * @param volume
+	 */
+	public TradingStrategy(ExecutionService tradeExecutionService, String security,
+			double triggerLevel, int quantityToPurchase, boolean tradeExecuted, double priceThreshold) {
+		this.tradeExecutionService = tradeExecutionService;
+		this.security = security;
+		this.triggerLevel = triggerLevel;
+		this.quantityToPurchase = quantityToPurchase;
+		this.tradeExecuted = tradeExecuted;
+		this.priceThreshold = priceThreshold;
+	}
+	
+	public void autoBuy(List<TradingStrategy> request) throws InterruptedException {
+		request.stream().map(r -> new TradingStrategy(tradeExecutionService, r.getSecurity(), 
+				r.getTriggerLevel(), r.getQuantityToPurchase(), r.isTradeExecuted(), r.getPriceThreshold()))
+		.forEach(priceSource::addPriceListener);
+	}
+
+	@Override
+	public void priceUpdate(String security, double price) {
+		if (canBuy(security, price)) {
+			tradeExecutionService = new TradeExecutionService();
+			tradeExecutionService.buy(security, price, quantityToPurchase);
+			tradeExecuted = true;
+		}
+	}
+	
+	private boolean canBuy(String security, double price) {
+		return (!tradeExecuted) && this.security.equals(security) && (price < this.triggerLevel);
+	}
+
+
+
+	/**
+	 * @param tradeExecutionService
+	 */
+	public TradingStrategy(ExecutionService tradeExecutionService, PriceSource priceSource) {
 		this.tradeExecutionService = tradeExecutionService;
 		this.priceSource = priceSource;
 	}
 
-	public void autoBuy(List<SecurityDTO> request) throws InterruptedException {
-
-	    request.stream().map(
-	        r -> new BuyPriceListener(r.getSecurity(), r.getPriceThreshold(), r.getVolume(),
-	            tradeExecutionService, false)).forEach(priceSource::addPriceListener);
-	    Thread thread = new Thread(priceSource);
-	    thread.start();
-	    thread.join();
-	    request.stream().map(
-	        r -> new BuyPriceListener(r.getSecurity(), r.getPriceThreshold(), r.getVolume(),
-	            tradeExecutionService, false)).forEach(priceSource::removePriceListener);
-	  }
-
-	  //This is a demo test
-	  public static void main(String[] args) throws InterruptedException {
-	    TradingStrategy tradingStrategy = new TradingStrategy(new TradeExecutionService(1),
-	        new PriceSourceImpl());
-	    
-	    final SecurityDTO adani = SecurityDTO.builder().security("ADANI").priceThreshold(2940.00).volume(12)
-	        .build();
-	    final SecurityDTO reliance = SecurityDTO.builder().security("Reliance").priceThreshold(1203.00)
-	        .volume(22)
-	        .build();
-	    tradingStrategy.autoBuy(Arrays.asList(adani, reliance));
-	  }
-
-}
-
-@AllArgsConstructor
-@Builder
-@Data
-class SecurityDTO {
-
-	private final String security;
-	private final Double priceThreshold;
-	private final Integer volume;
 }
